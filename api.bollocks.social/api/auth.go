@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"net/http"
 	"strings"
 
@@ -28,7 +27,8 @@ func VerifyToken(c *auth.Client) func(next http.Handler) http.Handler {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			ctx := context.WithValue(r.Context(), "subject", token.Subject)
+
+			ctx := ContextWithUserId(r.Context(), token.Subject)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
