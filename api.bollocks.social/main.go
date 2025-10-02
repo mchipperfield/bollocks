@@ -11,7 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	firebase "firebase.google.com/go"
 	"github.com/chipperfieldm/bollocks/api.bollocks.social/api"
+	"github.com/gorilla/handlers"
 )
 
 const (
@@ -19,8 +21,10 @@ const (
 )
 
 func main() {
-	logger := slog.Default().With("service", Service)
-	logger.Info("initiating service")
+	logger := &Slogger{
+		slog.Default().With(slog.Group("service", "name", Service)),
+	}
+	logger.Log("initiating service")
 
 	flags := flag.NewFlagSet("", flag.ContinueOnError)
 	var (
@@ -28,15 +32,43 @@ func main() {
 	)
 
 	if err := flags.Parse(os.Args[1:]); err != nil {
-		logger.Error("Failed to parse flags", "error", err)
+		logger.Log("Failed to parse flags", "error", err)
 		os.Exit(1)
 	}
 
-	mux := api.NewHandler()
+	firebaseApp, err := firebase.NewApp(context.Background(), nil)
+	if err != nil {
+		logger.Log("failed to create firebase app", "error", err)
+		os.Exit(1)
+	}
+	auth, err := firebaseApp.Auth(context.Background())
+	if err != nil {
+		logger.Log("failed to create firebase auth client", "error", err)
+		os.Exit(1)
+	}
+	client, err := firebaseApp.Firestore(context.Background())
+	if err != nil {
+		logger.Log("failed to create firestore client", "error", err)
+		os.Exit(1)
+	}
+
+	authMw := api.VerifyToken(auth)
+
+	panicMw := api.PanicMw(logger)
+
+	corsMw := handlers.CORS(
+		handlers.AllowedOrigins([]string{"http://localhost:5173"}),
+		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
+		handlers.AllowedHeaders([]string{"Authorization", "Content-Type"}),
+	)
+
+	loggingMw := api.LoggingMiddleware(logger)
+
+	mux := api.NewHandler(logger, client)
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", *port),
-		Handler:      mux,
+		Handler:      panicMw(loggingMw(corsMw(authMw(mux)))),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -47,23 +79,23 @@ func main() {
 
 	errChan := make(chan error, 1)
 	go func() {
-		logger.Info("http server listening", "addr", srv.Addr)
+		logger.Log("http server listening", "addr", srv.Addr)
 		errChan <- srv.ListenAndServe()
 	}()
 
 	select {
 	case err := <-errChan:
-		logger.Info("listen and serve", "error", err, "addr", srv.Addr)
+		logger.Log("listen and serve", "error", err, "addr", srv.Addr)
 	case sig := <-stopChan:
-		logger.Info("shutdown signal received", "signal", sig)
+		logger.Log("shutdown signal received", "signal", sig)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		if err := srv.Shutdown(ctx); err != nil {
-			logger.Error("gracefully shutting down server", "error", err, "addr", srv.Addr)
+			logger.Log("gracefully shutting down server", "error", err, "addr", srv.Addr)
 			os.Exit(1)
 		}
-		logger.Info("server gracefully shutdown", "addr", srv.Addr)
+		logger.Log("server gracefully shutdown", "addr", srv.Addr)
 	}
 }
