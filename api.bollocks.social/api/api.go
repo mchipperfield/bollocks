@@ -13,7 +13,7 @@ func NewHandler(logger log.Logger, client *firestore.Client) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", Health)
 	mux.HandleFunc("GET /feed", GetFeed(logger, client))
-	mux.HandleFunc("POST /posts", CreatePost())
+	mux.HandleFunc("POST /posts", CreatePost(logger, client))
 	return mux
 }
 
