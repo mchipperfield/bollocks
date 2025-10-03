@@ -16,6 +16,7 @@ func NewHandler(logger log.Logger, client *firestore.Client) *http.ServeMux {
 	mux.HandleFunc("POST /posts", CreatePost(logger, client))
 	mux.HandleFunc("GET /posts", GetPosts(logger, client))
 	mux.HandleFunc("DELETE /posts/{postId}", DeletePost(logger, client))
+	mux.HandleFunc("POST /posts/{postId}/likes", LikePost(logger, client))
 	return mux
 }
 

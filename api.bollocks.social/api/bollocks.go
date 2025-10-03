@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -19,6 +20,7 @@ type Post struct {
 	Bollocks  string    `json:"bollocks"`
 	Tags      []string  `json:"tags"`
 	CreatedAt time.Time `json:"created_at"`
+	Likes     int       `json:"likes"`
 }
 
 // post as it is stored in firestore.
@@ -28,11 +30,14 @@ type post struct {
 	Tags      []string  `firestore:"tags"`
 	Author    string    `firestore:"author"`
 	CreatedAt time.Time `firestore:"created_at"`
+	Likes     []string  `firestore:"likes"`
 }
 
 func GetFeed(logger log.Logger, client *firestore.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		query := client.Collection("bollocks").Query
+		userId, _ := ContextGetUserId(r.Context())
+
+		query := client.Collection("bollocks").Where("author", "!=", userId)
 
 		iter := query.Documents(r.Context())
 		var ret []Post
@@ -56,6 +61,7 @@ func GetFeed(logger log.Logger, client *firestore.Client) http.HandlerFunc {
 				Bollocks:  p.Bollocks,
 				Tags:      p.Tags,
 				CreatedAt: docSnap.CreateTime,
+				Likes:     len(p.Likes),
 			})
 		}
 
@@ -184,5 +190,72 @@ func DeletePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func LikePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		docRef := client.Collection("bollocks").Doc(r.PathValue("postId"))
+		docSnap, err := docRef.Get(r.Context()) // check it exists
+		if err != nil {
+			switch {
+			case status.Code(err) == codes.NotFound:
+				w.WriteHeader(http.StatusNotFound)
+			default:
+				logger.Log("failed to get post", "error", err, "post_id", r.PathValue("postId"))
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+			return
+		}
+
+		var p post
+		if err := docSnap.DataTo(&p); err != nil {
+			logger.Log("failed to read document", "error", err, "post_id", r.PathValue("postId"))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		post := Post{
+			ID:        docRef.ID,
+			Bollocks:  p.Bollocks,
+			Tags:      p.Tags,
+			CreatedAt: docSnap.CreateTime,
+			Likes:     len(p.Likes),
+		}
+		userId, ok := ContextGetUserId(r.Context())
+		if !ok {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+
+		// check if user has already liked the post
+		ok = slices.Contains(p.Likes, userId)
+		if ok {
+			post.Likes--
+			_, err = docRef.Update(r.Context(), []firestore.Update{
+				{
+					Path:  "likes",
+					Value: firestore.ArrayRemove(userId),
+				},
+			}, firestore.LastUpdateTime(docSnap.UpdateTime))
+			if err != nil {
+				w.WriteHeader(501)
+			}
+		} else {
+			post.Likes++
+			_, err = docRef.Update(r.Context(), []firestore.Update{
+				{
+					Path:  "likes",
+					Value: firestore.ArrayUnion(userId),
+				},
+			}, firestore.LastUpdateTime(docSnap.UpdateTime))
+			if err != nil {
+				w.WriteHeader(501)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(post)
+
 	}
 }
