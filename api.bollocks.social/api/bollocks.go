@@ -145,6 +145,7 @@ func GetPosts(logger log.Logger, client *firestore.Client) http.HandlerFunc {
 				Bollocks:  p.Bollocks,
 				Tags:      p.Tags,
 				CreatedAt: docSnap.CreateTime,
+				Likes:     len(p.Likes),
 			})
 		}
 
@@ -256,6 +257,69 @@ func LikePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(post)
+
+	}
+}
+
+func UpdatePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
+	type request struct {
+		Bollocks string `json:"bollocks"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var req request
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		docRef := client.Collection("bollocks").Doc(r.PathValue("postId"))
+		docSnap, err := docRef.Get(r.Context()) // check it exists
+		if err != nil {
+			switch {
+			case status.Code(err) == codes.NotFound:
+				w.WriteHeader(http.StatusNotFound)
+			default:
+				logger.Log("failed to get post", "error", err, "post_id", r.PathValue("postId"))
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+			return
+		}
+
+		var p post
+		err = docSnap.DataTo(&p) // check we can read the author field
+		if err != nil {
+			logger.Log("failed to read document", "error", err, "post_id", r.PathValue("postId"))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		userId, ok := ContextGetUserId(r.Context())
+		if !ok || userId != p.Author {
+			logger.Log("user not authorized to update post", "user", userId, "post_id", r.PathValue("postId"))
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		_, err = docRef.Update(r.Context(), []firestore.Update{
+			{
+				Path:  "bollocks",
+				Value: req.Bollocks,
+			},
+		}, firestore.LastUpdateTime(docSnap.UpdateTime))
+		if err != nil {
+			logger.Log("failed to update bollocks", "error", err, "post_id", r.PathValue("postId"))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"id":         docRef.ID,
+			"bollocks":   req.Bollocks,
+			"tags":       p.Tags,
+			"created_at": docSnap.CreateTime,
+		})
 
 	}
 }
