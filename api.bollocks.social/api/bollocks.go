@@ -73,8 +73,7 @@ func GetFeed(logger log.Logger, client *firestore.Client) http.HandlerFunc {
 
 func CreatePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
 	type request struct {
-		Bollocks string   `json:"bollocks"`
-		Tags     []string `json:"tags"`
+		Bollocks string `json:"bollocks"`
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -86,10 +85,14 @@ func CreatePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
 		}
 
 		userId, _ := ContextGetUserId(r.Context())
-
+		tags := generateTags(req.Bollocks)
+		if len(tags) > 0 {
+			slices.Sort(tags)
+			tags = slices.Compact(tags)
+		}
 		docRef, wr, err := client.Collection("bollocks").Add(r.Context(), map[string]any{
 			"bollocks": req.Bollocks,
-			"tags":     req.Tags,
+			"tags":     tags,
 			"author":   userId,
 		})
 		if err != nil {
@@ -104,7 +107,7 @@ func CreatePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
 		json.NewEncoder(w).Encode(map[string]any{
 			"id":         docRef.ID,
 			"bollocks":   req.Bollocks,
-			"tags":       req.Tags,
+			"tags":       tags,
 			"created_at": wr.UpdateTime,
 		})
 
@@ -300,10 +303,17 @@ func UpdatePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
+		tags := generateTags(req.Bollocks)
+		slices.Sort(tags)
+		tags = slices.Compact(tags)
 		_, err = docRef.Update(r.Context(), []firestore.Update{
 			{
 				Path:  "bollocks",
 				Value: req.Bollocks,
+			},
+			{
+				Path:  "tags",
+				Value: tags,
 			},
 		}, firestore.LastUpdateTime(docSnap.UpdateTime))
 		if err != nil {

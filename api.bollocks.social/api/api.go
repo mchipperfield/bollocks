@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/mchipperfield/gocore/log"
 
@@ -52,4 +54,17 @@ func Health(w http.ResponseWriter, r *http.Request) {
 		"serviceId":   "https://api.bollocks.social",
 		"description": "health check endpoint for the bollocks.social API",
 	})
+}
+
+// generateTags extracts hashtags from content.
+func generateTags(content string) []string {
+	re := regexp.MustCompile(`#(\w+)`)
+	matches := re.FindAllStringSubmatch(content, -1)
+	tags := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) > 1 {
+			tags = append(tags, strings.ToLower(match[1]))
+		}
+	}
+	return tags
 }
