@@ -71,7 +71,7 @@ func GetFeed(logger log.Logger, client *firestore.Client) http.HandlerFunc {
 	}
 }
 
-func CreatePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
+func CreatePost(logger log.Logger, client *firestore.Client, geminiAPIKey string) http.HandlerFunc {
 	type request struct {
 		Bollocks string `json:"bollocks"`
 	}
@@ -85,11 +85,13 @@ func CreatePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
 		}
 
 		userId, _ := ContextGetUserId(r.Context())
-		tags := generateTags(req.Bollocks)
-		if len(tags) > 0 {
-			slices.Sort(tags)
-			tags = slices.Compact(tags)
+		tags, err := generateTags(r.Context(), geminiAPIKey, req.Bollocks)
+		if err != nil {
+			logger.Log("failed to generate AI tags, falling back", "error", err)
+			// Fallback to hashtag generation on error
+			tags = generateTagsFromHashtags(req.Bollocks)
 		}
+
 		docRef, wr, err := client.Collection("bollocks").Add(r.Context(), map[string]any{
 			"bollocks": req.Bollocks,
 			"tags":     tags,
@@ -264,7 +266,7 @@ func LikePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
 	}
 }
 
-func UpdatePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
+func UpdatePost(logger log.Logger, client *firestore.Client, geminiAPIKey string) http.HandlerFunc {
 	type request struct {
 		Bollocks string `json:"bollocks"`
 	}
@@ -303,9 +305,13 @@ func UpdatePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		tags := generateTags(req.Bollocks)
-		slices.Sort(tags)
-		tags = slices.Compact(tags)
+		tags, err := generateTags(r.Context(), geminiAPIKey, req.Bollocks)
+		if err != nil {
+			logger.Log("failed to generate AI tags, falling back", "error", err)
+			// Fallback to hashtag generation on error
+			tags = generateTagsFromHashtags(req.Bollocks)
+		}
+
 		_, err = docRef.Update(r.Context(), []firestore.Update{
 			{
 				Path:  "bollocks",

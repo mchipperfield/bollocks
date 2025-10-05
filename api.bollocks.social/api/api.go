@@ -3,21 +3,19 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"regexp"
-	"strings"
 
 	"github.com/mchipperfield/gocore/log"
 
 	"cloud.google.com/go/firestore"
 )
 
-func NewHandler(logger log.Logger, client *firestore.Client) *http.ServeMux {
+func NewHandler(logger log.Logger, client *firestore.Client, apiKey string) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", Health)
 	mux.HandleFunc("GET /feed", GetFeed(logger, client))
-	mux.HandleFunc("POST /posts", CreatePost(logger, client))
+	mux.HandleFunc("POST /posts", CreatePost(logger, client, apiKey))
 	mux.HandleFunc("GET /posts", GetPosts(logger, client))
-	mux.HandleFunc("PATCH /posts/{postId}", UpdatePost(logger, client))
+	mux.HandleFunc("PATCH /posts/{postId}", UpdatePost(logger, client, apiKey))
 	mux.HandleFunc("DELETE /posts/{postId}", DeletePost(logger, client))
 	mux.HandleFunc("POST /posts/{postId}/likes", LikePost(logger, client))
 	return mux
@@ -54,17 +52,4 @@ func Health(w http.ResponseWriter, r *http.Request) {
 		"serviceId":   "https://api.bollocks.social",
 		"description": "health check endpoint for the bollocks.social API",
 	})
-}
-
-// generateTags extracts hashtags from content.
-func generateTags(content string) []string {
-	re := regexp.MustCompile(`#(\w+)`)
-	matches := re.FindAllStringSubmatch(content, -1)
-	tags := make([]string, 0, len(matches))
-	for _, match := range matches {
-		if len(match) > 1 {
-			tags = append(tags, strings.ToLower(match[1]))
-		}
-	}
-	return tags
 }

@@ -28,7 +28,8 @@ func main() {
 
 	flags := flag.NewFlagSet("", flag.ContinueOnError)
 	var (
-		port = flags.Int("port", 8080, "port for API to listen on")
+		port         = flags.Int("port", 8080, "port for API to listen on")
+		geminiAPIKey = flags.String("gemini-api-key", "", "API key for the Google Gemini service")
 	)
 
 	if err := flags.Parse(os.Args[1:]); err != nil {
@@ -64,7 +65,7 @@ func main() {
 
 	loggingMw := api.LoggingMiddleware(logger)
 
-	mux := api.NewHandler(logger, client)
+	mux := api.NewHandler(logger, client, *geminiAPIKey)
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", *port),
