@@ -1,4 +1,4 @@
-module github.com/chipperfieldm/bollocks/api.bollocks.social
+module github.com/mchipperfield/bollocks/api.bollocks.social
 
 go 1.25.1
 

@@ -12,8 +12,8 @@ import (
 	"time"
 
 	firebase "firebase.google.com/go"
-	"github.com/chipperfieldm/bollocks/api.bollocks.social/api"
 	"github.com/gorilla/handlers"
+	"github.com/mchipperfield/bollocks/api.bollocks.social/api"
 )
 
 const (
