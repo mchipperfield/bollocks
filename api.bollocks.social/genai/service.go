@@ -29,7 +29,7 @@ func NewService(ctx context.Context, apiKey string) (*Service, error) {
 }
 
 func (s *Service) GenerateTags(ctx context.Context, content string) ([]string, error) {
-	prompt := fmt.Sprintf("Analyze the following text and generate 3-5 relevant, single-word, lowercase tags. Return the tags as a JSON array of strings. Do not include any other text or markdown in your response. Text: \"%s\"", content)
+	prompt := fmt.Sprintf("Analyze the following text and generate 3-5 relevant, single-word, lowercase tags. Return the tags as a JSON array of strings. Do not include any other text or markdown in your response. If any words are preceeded by a #, these should be prioritized. Text: \"%s\"", content)
 
 	model := s.client.GenerativeModel("gemini-2.5-flash")
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
