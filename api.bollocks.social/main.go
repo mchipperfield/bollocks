@@ -14,6 +14,7 @@ import (
 	firebase "firebase.google.com/go"
 	"github.com/gorilla/handlers"
 	"github.com/mchipperfield/bollocks/api.bollocks.social/api"
+	"github.com/mchipperfield/bollocks/api.bollocks.social/firestore"
 )
 
 const (
@@ -65,7 +66,8 @@ func main() {
 
 	loggingMw := api.LoggingMiddleware(logger)
 
-	mux := api.NewHandler(logger, client, *geminiAPIKey)
+	service := firestore.NewService(client)
+	mux := api.NewHandler(logger, service, *geminiAPIKey)
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", *port),

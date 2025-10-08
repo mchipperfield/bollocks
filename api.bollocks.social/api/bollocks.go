@@ -3,12 +3,9 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"slices"
 	"time"
 
-	"cloud.google.com/go/firestore"
 	"github.com/mchipperfield/gocore/log"
-	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -23,55 +20,24 @@ type Post struct {
 	Likes     int       `json:"likes"`
 }
 
-// post as it is stored in firestore.
-// id is not included as it is part of the document reference.
-type post struct {
-	Bollocks  string    `firestore:"bollocks"`
-	Tags      []string  `firestore:"tags"`
-	Author    string    `firestore:"author"`
-	CreatedAt time.Time `firestore:"created_at"`
-	Likes     []string  `firestore:"likes"`
-}
-
-func GetFeed(logger log.Logger, client *firestore.Client) http.HandlerFunc {
+// GET /feed
+func GetFeed(logger log.Logger, s Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userId, _ := ContextGetUserId(r.Context())
-
-		query := client.Collection("bollocks").Where("author", "!=", userId)
-
-		iter := query.Documents(r.Context())
-		var ret []Post
-		for {
-			docSnap, err := iter.Next()
-			if err == iterator.Done {
-				break
-			}
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			var p post
-			if err := docSnap.DataTo(&p); err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-
-			ret = append(ret, Post{
-				ID:        docSnap.Ref.ID,
-				Bollocks:  p.Bollocks,
-				Tags:      p.Tags,
-				CreatedAt: docSnap.CreateTime,
-				Likes:     len(p.Likes),
-			})
+		posts, err := s.GetFeed(r.Context())
+		if err != nil {
+			logger.Log("failed to get feed", "error", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(ret)
+		json.NewEncoder(w).Encode(posts)
 	}
 }
 
-func CreatePost(logger log.Logger, client *firestore.Client, geminiAPIKey string) http.HandlerFunc {
+// POST /posts
+func CreatePost(logger log.Logger, s Service, geminiAPIKey string) http.HandlerFunc {
 	type request struct {
 		Bollocks string `json:"bollocks"`
 	}
@@ -84,7 +50,6 @@ func CreatePost(logger log.Logger, client *firestore.Client, geminiAPIKey string
 			return
 		}
 
-		userId, _ := ContextGetUserId(r.Context())
 		tags, err := generateTags(r.Context(), geminiAPIKey, req.Bollocks)
 		if err != nil {
 			logger.Log("failed to generate AI tags, falling back", "error", err)
@@ -92,11 +57,7 @@ func CreatePost(logger log.Logger, client *firestore.Client, geminiAPIKey string
 			tags = generateTagsFromHashtags(req.Bollocks)
 		}
 
-		docRef, wr, err := client.Collection("bollocks").Add(r.Context(), map[string]any{
-			"bollocks": req.Bollocks,
-			"tags":     tags,
-			"author":   userId,
-		})
+		post, err := s.CreatePost(r.Context(), req.Bollocks, tags)
 		if err != nil {
 			logger.Log("failed to create post", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -104,169 +65,31 @@ func CreatePost(logger log.Logger, client *firestore.Client, geminiAPIKey string
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Location", "/posts/"+docRef.ID)
+		w.Header().Set("Location", "/posts/"+post.ID)
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]any{
-			"id":         docRef.ID,
-			"bollocks":   req.Bollocks,
-			"tags":       tags,
-			"created_at": wr.UpdateTime,
-		})
-
-	}
-}
-
-func GetPosts(logger log.Logger, client *firestore.Client) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		user, ok := ContextGetUserId(r.Context())
-		if !ok {
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-
-		query := client.Collection("bollocks").Query
-		query = query.Where("author", "==", user)
-
-		iter := query.Documents(r.Context())
-		var ret []Post
-		for {
-			docSnap, err := iter.Next()
-			if err == iterator.Done {
-				break
-			}
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			var p post
-			if err := docSnap.DataTo(&p); err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-
-			ret = append(ret, Post{
-				ID:        docSnap.Ref.ID,
-				Bollocks:  p.Bollocks,
-				Tags:      p.Tags,
-				CreatedAt: docSnap.CreateTime,
-				Likes:     len(p.Likes),
-			})
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(ret)
-	}
-}
-
-func DeletePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		docRef := client.Collection("bollocks").Doc(r.PathValue("postId"))
-		docSnap, err := docRef.Get(r.Context()) // check it exists
-		if err != nil {
-			switch {
-			case status.Code(err) == codes.NotFound:
-				w.WriteHeader(http.StatusNotFound)
-			default:
-				logger.Log("failed to get post", "error", err, "post_id", r.PathValue("postId"))
-				w.WriteHeader(http.StatusInternalServerError)
-			}
-			return
-		}
-
-		author, err := docSnap.DataAt("author") // check we can read the author field
-		if err != nil {
-			logger.Log("failed to read document", "error", err, "post_id", r.PathValue("postId"), "field", "author")
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		userId, ok := ContextGetUserId(r.Context())
-		if !ok || author != userId {
-			logger.Log("user not authorized to delete post", "user", userId, "post_id", r.PathValue("postId"))
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-
-		_, err = docRef.Delete(r.Context(), firestore.Exists)
-		if err != nil {
-			logger.Log("failed to delete bollocks", "error", err, "post_id", r.PathValue("postId"))
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}
-}
-
-func LikePost(logger log.Logger, client *firestore.Client) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		docRef := client.Collection("bollocks").Doc(r.PathValue("postId"))
-		docSnap, err := docRef.Get(r.Context()) // check it exists
-		if err != nil {
-			switch {
-			case status.Code(err) == codes.NotFound:
-				w.WriteHeader(http.StatusNotFound)
-			default:
-				logger.Log("failed to get post", "error", err, "post_id", r.PathValue("postId"))
-				w.WriteHeader(http.StatusInternalServerError)
-			}
-			return
-		}
-
-		var p post
-		if err := docSnap.DataTo(&p); err != nil {
-			logger.Log("failed to read document", "error", err, "post_id", r.PathValue("postId"))
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		post := Post{
-			ID:        docRef.ID,
-			Bollocks:  p.Bollocks,
-			Tags:      p.Tags,
-			CreatedAt: docSnap.CreateTime,
-			Likes:     len(p.Likes),
-		}
-		userId, ok := ContextGetUserId(r.Context())
-		if !ok {
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-
-		// check if user has already liked the post
-		ok = slices.Contains(p.Likes, userId)
-		if ok {
-			post.Likes--
-			_, err = docRef.Update(r.Context(), []firestore.Update{
-				{
-					Path:  "likes",
-					Value: firestore.ArrayRemove(userId),
-				},
-			}, firestore.LastUpdateTime(docSnap.UpdateTime))
-			if err != nil {
-				w.WriteHeader(501)
-			}
-		} else {
-			post.Likes++
-			_, err = docRef.Update(r.Context(), []firestore.Update{
-				{
-					Path:  "likes",
-					Value: firestore.ArrayUnion(userId),
-				},
-			}, firestore.LastUpdateTime(docSnap.UpdateTime))
-			if err != nil {
-				w.WriteHeader(501)
-			}
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(post)
 
 	}
 }
 
-func UpdatePost(logger log.Logger, client *firestore.Client, geminiAPIKey string) http.HandlerFunc {
+// GET /posts
+func GetPosts(logger log.Logger, s Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		posts, err := s.GetPosts(r.Context())
+		if err != nil {
+			logger.Log("failed to get posts", "error", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(posts)
+	}
+}
+
+// PATCH /posts/{postId}
+func UpdatePost(logger log.Logger, s Service, geminiAPIKey string) http.HandlerFunc {
 	type request struct {
 		Bollocks string `json:"bollocks"`
 	}
@@ -279,32 +102,7 @@ func UpdatePost(logger log.Logger, client *firestore.Client, geminiAPIKey string
 			return
 		}
 
-		docRef := client.Collection("bollocks").Doc(r.PathValue("postId"))
-		docSnap, err := docRef.Get(r.Context()) // check it exists
-		if err != nil {
-			switch {
-			case status.Code(err) == codes.NotFound:
-				w.WriteHeader(http.StatusNotFound)
-			default:
-				logger.Log("failed to get post", "error", err, "post_id", r.PathValue("postId"))
-				w.WriteHeader(http.StatusInternalServerError)
-			}
-			return
-		}
-
-		var p post
-		err = docSnap.DataTo(&p) // check we can read the author field
-		if err != nil {
-			logger.Log("failed to read document", "error", err, "post_id", r.PathValue("postId"))
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		userId, ok := ContextGetUserId(r.Context())
-		if !ok || userId != p.Author {
-			logger.Log("user not authorized to update post", "user", userId, "post_id", r.PathValue("postId"))
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
+		postID := r.PathValue("postId")
 		tags, err := generateTags(r.Context(), geminiAPIKey, req.Bollocks)
 		if err != nil {
 			logger.Log("failed to generate AI tags, falling back", "error", err)
@@ -312,30 +110,70 @@ func UpdatePost(logger log.Logger, client *firestore.Client, geminiAPIKey string
 			tags = generateTagsFromHashtags(req.Bollocks)
 		}
 
-		_, err = docRef.Update(r.Context(), []firestore.Update{
-			{
-				Path:  "bollocks",
-				Value: req.Bollocks,
-			},
-			{
-				Path:  "tags",
-				Value: tags,
-			},
-		}, firestore.LastUpdateTime(docSnap.UpdateTime))
+		post, err := s.UpdatePost(r.Context(), postID, req.Bollocks, tags)
 		if err != nil {
-			logger.Log("failed to update bollocks", "error", err, "post_id", r.PathValue("postId"))
-			w.WriteHeader(http.StatusInternalServerError)
+			switch {
+			case status.Code(err) == codes.PermissionDenied:
+				w.WriteHeader(http.StatusForbidden)
+			case status.Code(err) == codes.NotFound:
+				w.WriteHeader(http.StatusNotFound)
+			default:
+				logger.Log("failed to update bollocks", "error", err, "post_id", postID)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]any{
-			"id":         docRef.ID,
-			"bollocks":   req.Bollocks,
-			"tags":       p.Tags,
-			"created_at": docSnap.CreateTime,
-		})
+		json.NewEncoder(w).Encode(post)
+
+	}
+}
+
+// DELETE /posts/{postId}
+func DeletePost(logger log.Logger, s Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		postID := r.PathValue("postId")
+		err := s.DeletePost(r.Context(), postID)
+		if err != nil {
+			switch {
+			case status.Code(err) == codes.PermissionDenied:
+				w.WriteHeader(http.StatusForbidden)
+			case status.Code(err) == codes.NotFound:
+				w.WriteHeader(http.StatusNotFound)
+			default:
+				logger.Log("failed to delete post", "error", err, "post_id", postID)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// POST /posts/{postId}/likes
+func LikePost(logger log.Logger, s Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		postID := r.PathValue("postId")
+		post, err := s.ToggleLike(r.Context(), postID)
+		if err != nil {
+			switch {
+			case status.Code(err) == codes.PermissionDenied:
+				w.WriteHeader(http.StatusForbidden)
+			case status.Code(err) == codes.NotFound:
+				w.WriteHeader(http.StatusNotFound)
+			default:
+				logger.Log("failed to toggle like", "error", err, "post_id", postID)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(post)
 
 	}
 }
