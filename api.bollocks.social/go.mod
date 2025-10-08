@@ -5,6 +5,7 @@ go 1.25.1
 require (
 	cloud.google.com/go/firestore v1.18.0
 	firebase.google.com/go v3.13.0+incompatible
+	github.com/google/generative-ai-go v0.20.1
 	github.com/gorilla/handlers v1.5.2
 	github.com/mchipperfield/gocore v0.0.0-20250613192131-2760608b5d42
 	google.golang.org/api v0.250.0
@@ -14,6 +15,7 @@ require (
 require (
 	cel.dev/expr v0.24.0 // indirect
 	cloud.google.com/go v0.121.6 // indirect
+	cloud.google.com/go/ai v0.8.0 // indirect
 	cloud.google.com/go/auth v0.16.5 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.8.4 // indirect

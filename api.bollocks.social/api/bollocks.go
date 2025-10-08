@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/mchipperfield/bollocks/api.bollocks.social/genai"
 	"github.com/mchipperfield/gocore/log"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -37,7 +38,7 @@ func GetFeed(logger log.Logger, s Service) http.HandlerFunc {
 }
 
 // POST /posts
-func CreatePost(logger log.Logger, s Service, geminiAPIKey string) http.HandlerFunc {
+func CreatePost(logger log.Logger, s Service, ai *genai.Service) http.HandlerFunc {
 	type request struct {
 		Bollocks string `json:"bollocks"`
 	}
@@ -50,7 +51,7 @@ func CreatePost(logger log.Logger, s Service, geminiAPIKey string) http.HandlerF
 			return
 		}
 
-		tags, err := generateTags(r.Context(), geminiAPIKey, req.Bollocks)
+		tags, err := ai.GenerateTags(r.Context(), req.Bollocks)
 		if err != nil {
 			logger.Log("failed to generate AI tags, falling back", "error", err)
 			// Fallback to hashtag generation on error
@@ -89,7 +90,7 @@ func GetPosts(logger log.Logger, s Service) http.HandlerFunc {
 }
 
 // PATCH /posts/{postId}
-func UpdatePost(logger log.Logger, s Service, geminiAPIKey string) http.HandlerFunc {
+func UpdatePost(logger log.Logger, s Service, ai *genai.Service) http.HandlerFunc {
 	type request struct {
 		Bollocks string `json:"bollocks"`
 	}
@@ -103,7 +104,7 @@ func UpdatePost(logger log.Logger, s Service, geminiAPIKey string) http.HandlerF
 		}
 
 		postID := r.PathValue("postId")
-		tags, err := generateTags(r.Context(), geminiAPIKey, req.Bollocks)
+		tags, err := ai.GenerateTags(r.Context(), req.Bollocks)
 		if err != nil {
 			logger.Log("failed to generate AI tags, falling back", "error", err)
 			// Fallback to hashtag generation on error

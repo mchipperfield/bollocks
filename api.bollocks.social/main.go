@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/handlers"
 	"github.com/mchipperfield/bollocks/api.bollocks.social/api"
 	"github.com/mchipperfield/bollocks/api.bollocks.social/firestore"
+	"github.com/mchipperfield/bollocks/api.bollocks.social/genai"
 )
 
 const (
@@ -53,7 +54,11 @@ func main() {
 		logger.Log("failed to create firestore client", "error", err)
 		os.Exit(1)
 	}
-
+	ai, err := genai.NewService(context.Background(), *geminiAPIKey)
+	if err != nil {
+		logger.Log("failed to create AI service", "error", err)
+		os.Exit(1)
+	}
 	authMw := api.VerifyToken(auth)
 
 	panicMw := api.PanicMw(logger)
@@ -67,7 +72,7 @@ func main() {
 	loggingMw := api.LoggingMiddleware(logger)
 
 	service := firestore.NewService(client)
-	mux := api.NewHandler(logger, service, *geminiAPIKey)
+	mux := api.NewHandler(logger, service, ai)
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", *port),

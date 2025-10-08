@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/mchipperfield/bollocks/api.bollocks.social/genai"
 	"github.com/mchipperfield/gocore/log"
 )
 
@@ -17,13 +18,13 @@ type Service interface {
 	ToggleLike(ctx context.Context, postID string) (*Post, error)
 }
 
-func NewHandler(logger log.Logger, s Service, apiKey string) *http.ServeMux {
+func NewHandler(logger log.Logger, s Service, ai *genai.Service) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", Health)
 	mux.HandleFunc("GET /feed", GetFeed(logger, s))
-	mux.HandleFunc("POST /posts", CreatePost(logger, s, apiKey))
+	mux.HandleFunc("POST /posts", CreatePost(logger, s, ai))
 	mux.HandleFunc("GET /posts", GetPosts(logger, s))
-	mux.HandleFunc("PATCH /posts/{postId}", UpdatePost(logger, s, apiKey))
+	mux.HandleFunc("PATCH /posts/{postId}", UpdatePost(logger, s, ai))
 	mux.HandleFunc("DELETE /posts/{postId}", DeletePost(logger, s))
 	mux.HandleFunc("POST /posts/{postId}/likes", LikePost(logger, s))
 	return mux
