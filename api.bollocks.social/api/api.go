@@ -16,6 +16,8 @@ type Service interface {
 	DeletePost(ctx context.Context, postID string) error
 	UpdatePost(ctx context.Context, postID, bollocks string, tags []string) (*Post, error)
 	ToggleLike(ctx context.Context, postID string) (*Post, error)
+	GetMyProfile(ctx context.Context) (*Profile, error)
+	UpdateMyProfile(ctx context.Context, interests []string) (*Profile, error)
 }
 
 func NewHandler(logger log.Logger, s Service, ai *genai.Service) *http.ServeMux {
@@ -27,6 +29,8 @@ func NewHandler(logger log.Logger, s Service, ai *genai.Service) *http.ServeMux 
 	mux.HandleFunc("PATCH /posts/{postId}", UpdatePost(logger, s, ai))
 	mux.HandleFunc("DELETE /posts/{postId}", DeletePost(logger, s))
 	mux.HandleFunc("POST /posts/{postId}/likes", LikePost(logger, s))
+	mux.HandleFunc("GET /profiles/me", GetMyProfile(logger, s))
+	mux.HandleFunc("PATCH /profiles/me", UpdateMyProfile(logger, s))
 	return mux
 }
 
